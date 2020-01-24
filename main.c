@@ -73,7 +73,7 @@
 
 #define UART_PRINTING_ENABLED
 #define SAADC_CALIBRATION_INTERVAL 5              //Determines how often the SAADC should be calibrated relative to NRF_DRV_SAADC_EVT_DONE event. E.g. value 5 will make the SAADC calibrate every fifth time the NRF_DRV_SAADC_EVT_DONE is received.
-#define SAADC_SAMPLES_IN_BUFFER 4                 //Number of SAADC samples in RAM before returning a SAADC event. For low power SAADC set this constant to 1. Otherwise the EasyDMA will be enabled for an extended time which consumes high current.
+#define SAADC_SAMPLES_IN_BUFFER 1                 //Number of SAADC samples in RAM before returning a SAADC event. For low power SAADC set this constant to 1. Otherwise the EasyDMA will be enabled for an extended time which consumes high current.
 #define SAADC_OVERSAMPLE NRF_SAADC_OVERSAMPLE_4X  //Oversampling setting for the SAADC. Setting oversample to 4x This will make the SAADC output a single averaged value when the SAMPLE task is triggered 4 times. Enable BURST mode to make the SAADC sample 4 times when triggering SAMPLE task once.
 #define SAADC_BURST_MODE 1                        //Set to 1 to enable BURST mode, otherwise set to 0.
 
@@ -112,6 +112,14 @@
 #define ADC_PRE_SCALING_COMPENSATION  6
 #define ADC_OFFSET                    100
 
+#define EC_SIG_PIN_NO_3               3
+#define EC_SIG_PIN_NO_1               4
+#define EC_SIG_PIN_NO_2               5
+#define EC_PWR_1_PIN                  17
+#define EC_PWR_2_PIN                  11
+#define EC_PWR_3_PIN                  12
+
+
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
         ((((ADC_VALUE) * ADC_REF_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_12BIT) * ADC_PRE_SCALING_COMPENSATION) + ADC_OFFSET
 //#define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
@@ -144,7 +152,8 @@ APP_TIMER_DEF(m_timer_analog_values_id);     /**< Handler for repeated timer use
 
 /*functions prototypes */
 static void button_event_handler(uint8_t, uint8_t);
-void saadc_init(void);
+void saadc_init(uint8_t analog_pin_no, uint8_t gnd_pin_no);
+bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no);
 
 //const nrf_drv_timer_t SIMPLE_TIMER = NRF_DRV_TIMER_INSTANCE(SIMPLE_TIMER_CONFIG_INSTANCE);
 
@@ -487,9 +496,135 @@ static void repeated_timer_handler(void * p_context){
     //nrf_drv_gpiote_out_toggle(POWER_PIN);
 }
 
+static void pin_write(int ec_pin, bool level){
+    if(level == true){
+        nrf_gpio_pin_set(ec_pin);
+    }
+    else if(level == false){
+        nrf_gpio_pin_clear(ec_pin);
+    }
+}
+
 static void adc_timer_handler(void * p_context){
     NRF_LOG_INFO("timer_handler.");
+    //TODO: 
+    //set right pin configuration
+    //init saadc with same right pins
+    //adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);
+    //saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
     nrf_drv_saadc_sample();                                        //Trigger the SAADC SAMPLE task
+}
+
+void adc_pin_configuration_init(void)
+{
+    //init all pins to idle default state
+    //set pins output - default state output low
+    nrf_gpio_cfg_output(EC_SIG_PIN_NO_1);
+    nrf_gpio_cfg_output(EC_SIG_PIN_NO_2);
+    nrf_gpio_cfg_output(EC_SIG_PIN_NO_3);
+    //set pins LOW
+    pin_write(EC_SIG_PIN_NO_1, false);
+    pin_write(EC_SIG_PIN_NO_2, false);
+    pin_write(EC_SIG_PIN_NO_3, false);
+
+    //set pins as output
+    nrf_gpio_cfg_output(EC_PWR_1_PIN);
+    nrf_gpio_cfg_output(EC_PWR_2_PIN); 
+    nrf_gpio_cfg_output(EC_PWR_3_PIN);
+    //set pins LOW
+    pin_write(EC_PWR_1_PIN, false);
+    pin_write(EC_PWR_2_PIN, false);
+    pin_write(EC_PWR_3_PIN, false);
+}
+
+bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no)
+{
+    //chack if the pins are same
+    if(analog_pin_no == gnd_pin_no)
+    {
+        return false;
+    }
+    //set analog_pin_no to  nrf_gpio_cfg_default
+    if(analog_pin_no == EC_SIG_PIN_NO_1)
+    {
+        pin_write(EC_PWR_1_PIN, true);
+        nrf_gpio_cfg_default(EC_PWR_2_PIN);
+        nrf_gpio_cfg_input(EC_PWR_2_PIN, NRF_GPIO_PIN_NOPULL);
+        nrf_gpio_cfg_default(EC_PWR_3_PIN);
+        nrf_gpio_cfg_input(EC_PWR_3_PIN, NRF_GPIO_PIN_NOPULL);
+
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_1);
+    }    
+    else if(analog_pin_no == EC_SIG_PIN_NO_2)
+    {
+        nrf_gpio_cfg_default(EC_PWR_1_PIN);
+        nrf_gpio_cfg_input(EC_PWR_1_PIN, NRF_GPIO_PIN_NOPULL);
+        pin_write(EC_PWR_2_PIN, true);
+        nrf_gpio_cfg_default(EC_PWR_3_PIN);
+        nrf_gpio_cfg_input(EC_PWR_3_PIN, NRF_GPIO_PIN_NOPULL);
+        
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_2);
+    }
+    else if(analog_pin_no == EC_SIG_PIN_NO_3)
+    {
+        nrf_gpio_cfg_default(EC_PWR_1_PIN);
+        nrf_gpio_cfg_input(EC_PWR_1_PIN, NRF_GPIO_PIN_NOPULL);
+        pin_write(EC_PWR_2_PIN, true);
+        nrf_gpio_cfg_default(EC_PWR_3_PIN);
+        nrf_gpio_cfg_input(EC_PWR_3_PIN, NRF_GPIO_PIN_NOPULL);
+        
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_3);
+    }
+    else
+    {
+        return false;
+    }
+
+    //selelc ref gnd
+    if(gnd_pin_no == EC_SIG_PIN_NO_1)
+    {
+        pin_write(EC_SIG_PIN_NO_1, false);
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_2);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_2, NRF_GPIO_PIN_NOPULL);
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_3);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_3, NRF_GPIO_PIN_NOPULL);
+    }
+    else if(gnd_pin_no == EC_SIG_PIN_NO_2)
+    {
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_1);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_1, NRF_GPIO_PIN_NOPULL);
+        pin_write(EC_SIG_PIN_NO_2, false);
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_3);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_3, NRF_GPIO_PIN_NOPULL);
+    }
+    else if(gnd_pin_no == EC_SIG_PIN_NO_3)
+    {
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_1);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_1, NRF_GPIO_PIN_NOPULL);
+        nrf_gpio_cfg_default(EC_SIG_PIN_NO_2);
+        nrf_gpio_cfg_input(EC_SIG_PIN_NO_2, NRF_GPIO_PIN_NOPULL);
+        pin_write(EC_SIG_PIN_NO_3, false);
+    }
+    else
+    {
+        return false;
+    }
+    
+    return true;
+}
+
+//pin configuration when there is no measurement and divice is in idle mode
+void adc_pin_configuration_idle(void)
+{
+    //set pins to default state
+    nrf_gpio_cfg_default(EC_PWR_1_PIN);
+    nrf_gpio_cfg_default(EC_PWR_2_PIN);
+    nrf_gpio_cfg_default(EC_PWR_3_PIN);
+    nrf_gpio_cfg_default(EC_PWR_1_PIN);
+    nrf_gpio_cfg_default(EC_PWR_2_PIN);
+    nrf_gpio_cfg_default(EC_PWR_3_PIN);
+    //init all pins to idle state
+    adc_pin_configuration_init();
 }
 
 void timer2_create(void){
@@ -547,11 +682,20 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         }
         
         m_adc_evt_counter++;
+
+        //TODO: 
+        //set adc pins to default state
+        //uninit saadc
+//        NRF_LOG_INFO("SAADC uninit\r\n"); 
+//        nrf_drv_saadc_uninit();                                                                   //Unintialize SAADC to disable EasyDMA and save power
+//        NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear << SAADC_INTENCLR_END_Pos);               //Disable the SAADC interrupt
+//        NVIC_ClearPendingIRQ(SAADC_IRQn);
+//        adc_pin_configuration_idle();
   
     }
     else if (p_event->type == NRF_DRV_SAADC_EVT_CALIBRATEDONE)
     {
-        LEDS_INVERT(BSP_LED_2_MASK);                                                                    //Toggle LED3 to indicate SAADC calibration complete
+        //LEDS_INVERT(BSP_LED_2_MASK);                                                                    //Toggle LED3 to indicate SAADC calibration complete
         
         err_code = nrf_drv_saadc_buffer_convert(m_buffer_pool[0], SAADC_SAMPLES_IN_BUFFER);             //Set buffer so the SAADC can write to it again. 
         APP_ERROR_CHECK(err_code);
@@ -563,16 +707,15 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 #endif //UART_PRINTING_ENABLED	
         
     }
+
 }
 
 
-void saadc_init(void)
+void saadc_init(uint8_t analog_pin_no, uint8_t gnd_pin_no)
 {
     ret_code_t err_code;
     nrf_drv_saadc_config_t saadc_config;
     nrf_saadc_channel_config_t channel_config;
-
-
 	
     //Configure SAADC
     saadc_config.low_power_mode = true;                                                   //Enable low power mode.
@@ -589,7 +732,20 @@ void saadc_init(void)
     channel_config.gain = NRF_SAADC_GAIN1_6;                                              //Set input gain to 1/6. The maximum SAADC input voltage is then 0.6V/(1/6)=3.6V. The single ended input range is then 0V-3.6V
     channel_config.acq_time = NRF_SAADC_ACQTIME_10US;                                     //Set acquisition time. Set low acquisition time to enable maximum sampling frequency of 200kHz. Set high acquisition time to allow maximum source resistance up to 800 kohm, see the SAADC electrical specification in the PS. 
     channel_config.mode = NRF_SAADC_MODE_SINGLE_ENDED;                                    //Set SAADC as single ended. This means it will only have the positive pin as input, and the negative pin is shorted to ground (0V) internally.
-    channel_config.pin_p = SAADC_CH_PSELP_PSELP_VDD;                                          //Select the input pin for the channel. AIN0 pin maps to physical pin P0.02.
+    
+    //selelct the right analog input pin and gnd reference pin
+    if(analog_pin_no == EC_SIG_PIN_NO_1)                                                  //Select the input pin for the channel. AIN0 pin maps to physical pin P0.02.
+    {
+        channel_config.pin_p = NRF_SAADC_INPUT_AIN2;
+    }
+    else if(analog_pin_no == EC_SIG_PIN_NO_2)                                              //Select the input pin for the channel. AIN0 pin maps to physical pin P0.02.
+    {
+        channel_config.pin_p = NRF_SAADC_INPUT_AIN3;
+    }
+    else if(analog_pin_no == EC_SIG_PIN_NO_3)
+    {
+        channel_config.pin_p = NRF_SAADC_INPUT_AIN1;
+    }                                         
     channel_config.pin_n = NRF_SAADC_INPUT_DISABLED;                                      //Since the SAADC is single ended, the negative pin is disabled. The negative pin is shorted to ground internally.
     channel_config.resistor_p = NRF_SAADC_RESISTOR_DISABLED;                              //Disable pullup resistor on the input pin
     channel_config.resistor_n = NRF_SAADC_RESISTOR_DISABLED;                              //Disable pulldown resistor on the input pin
@@ -617,14 +773,19 @@ void application_init(void){
     ret_code_t err_code;
     // Initialize.
     log_init();
-    bsp_board_init(BSP_INIT_LEDS);
+    //bsp_board_init(BSP_INIT_LEDS);
     timers_init();//used by softdevice
     timer_adc_create();
     power_management_init();
     ble_stack_init();
     advertising_init();
-    saadc_init();                                    //Initialize and start SAADC
-    bsp_board_leds_on();
+
+    adc_pin_configuration_init();
+    adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);
+    saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
+
+
+    //bsp_board_leds_on();
 
     return;
 }
