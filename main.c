@@ -480,7 +480,7 @@ static void pin_write(int ec_pin, bool level){
 
 static void adc_power_timer_handler(void * p_context)
 {
-    NRF_LOG_INFO("timer+power_handler.");
+    //NRF_LOG_INFO("timer+power_handler.");
     //set right pin configuration
     //init saadc with same right pins  
     nrf_drv_saadc_sample();                                        //Trigger the SAADC SAMPLE task
@@ -489,16 +489,18 @@ static void adc_power_timer_handler(void * p_context)
 static void adc_timer_handler(void * p_context)
 {
     ret_code_t err_code;
-    NRF_LOG_INFO("timer_handler.");
+    //NRF_LOG_INFO("timer_handler.");
 
     if(true == measure_reverse)
     {
+        //NRF_LOG_INFO("timer_handler1.");
         adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
         saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
         measure_reverse = false;
     }
     else
     {
+        //NRF_LOG_INFO("timer_handler2.");
         adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
         saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
         measure_reverse = true;
@@ -656,13 +658,13 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         
 
 #ifdef UART_PRINTING_ENABLED
-        NRF_LOG_INFO("ADC event number: %d\r\n",(int)m_adc_evt_counter);                                //Print the event number on UART
+        //NRF_LOG_INFO("ADC event number: %d\r\n",(int)m_adc_evt_counter);                                //Print the event number on UART
 
         for (int i = 0; i < p_event->data.done.size; i++)
         {
             voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
-            NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
-            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
+            //NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
+            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);//2955
             //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
 
         }
@@ -683,7 +685,7 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         //TODO: 
         //set adc pins to default state
         //uninit saadc
-        NRF_LOG_INFO("SAADC uninit\r\n"); 
+        //NRF_LOG_INFO("SAADC uninit\r\n"); 
         nrf_drv_saadc_uninit();                                                                   //Unintialize SAADC to disable EasyDMA and save power
         NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear << SAADC_INTENCLR_END_Pos);               //Disable the SAADC interrupt
         NVIC_ClearPendingIRQ(SAADC_IRQn);
