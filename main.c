@@ -107,10 +107,10 @@
 
 #define DEAD_BEEF                       0xDEADBEEF                         /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
-#define ADC_REF_VOLTAGE_IN_MILLIVOLTS 600
+#define ADC_REF_VOLTAGE_IN_MILLIVOLTS 750
 #define ADC_RES_12BIT                 4095
-#define ADC_PRE_SCALING_COMPENSATION  6
-#define ADC_OFFSET                    100
+#define ADC_PRE_SCALING_COMPENSATION  2
+#define ADC_OFFSET                    0
 
 #define EC_SIG_PIN_NO_3               3
 #define EC_SIG_PIN_NO_1               4
@@ -119,6 +119,7 @@
 #define EC_PWR_2_PIN                  11
 #define EC_PWR_3_PIN                  12
 
+#define SENSE_VCC_RESISTOR_VALUE      10000
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
         ((((ADC_VALUE) * ADC_REF_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_12BIT) * ADC_PRE_SCALING_COMPENSATION) + ADC_OFFSET
@@ -149,6 +150,7 @@ ble_advdata_manuf_data_t manuf_specific_data;
 APP_TIMER_DEF(m_repeated_timer_id);     /**< Handler for repeated timer used to blink LED 1. */
 APP_TIMER_DEF(m_alarm_timer_id);     /**< Handler for oneshot alarm timer. */
 APP_TIMER_DEF(m_timer_analog_values_id);     /**< Handler for repeated timer used to blink LED 1. */
+APP_TIMER_DEF(m_timer_analog_power_id);     /**< Handler for repeated timer used to blink LED 1. */
 
 /*functions prototypes */
 static void button_event_handler(uint8_t, uint8_t);
@@ -158,6 +160,7 @@ bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no);
 //const nrf_drv_timer_t SIMPLE_TIMER = NRF_DRV_TIMER_INSTANCE(SIMPLE_TIMER_CONFIG_INSTANCE);
 
 uint8_t alarm_state_set = false;
+bool measure_reverse = true;
 
 
 
@@ -510,8 +513,18 @@ static void adc_timer_handler(void * p_context){
     //TODO: 
     //set right pin configuration
     //init saadc with same right pins
-    //adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);
-    //saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
+//    if(true == measure_reverse)
+//    {
+//        adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
+//        saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
+//        measure_reverse = false;
+//    }
+//    else
+//    {
+//        adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
+//        saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
+//        measure_reverse = true;
+//    }
     nrf_drv_saadc_sample();                                        //Trigger the SAADC SAMPLE task
 }
 
@@ -569,9 +582,9 @@ bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no)
     {
         nrf_gpio_cfg_default(EC_PWR_1_PIN);
         nrf_gpio_cfg_input(EC_PWR_1_PIN, NRF_GPIO_PIN_NOPULL);
-        pin_write(EC_PWR_2_PIN, true);
-        nrf_gpio_cfg_default(EC_PWR_3_PIN);
-        nrf_gpio_cfg_input(EC_PWR_3_PIN, NRF_GPIO_PIN_NOPULL);
+        nrf_gpio_cfg_default(EC_PWR_2_PIN);
+        nrf_gpio_cfg_input(EC_PWR_2_PIN, NRF_GPIO_PIN_NOPULL);
+        pin_write(EC_PWR_3_PIN, true);
         
         nrf_gpio_cfg_default(EC_SIG_PIN_NO_3);
     }
@@ -632,7 +645,7 @@ void timer2_create(void){
 
     // Create timers
     err_code = app_timer_create(&m_repeated_timer_id,
-                                APP_TIMER_MODE_REPEATED,
+                                APP_TIMER_MODE_SINGLE_SHOT,
                                 repeated_timer_handler);
     APP_ERROR_CHECK(err_code);
 }
@@ -650,16 +663,17 @@ void timer_adc_create(void){
 void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 {
     ret_code_t err_code;
+    int voltage = 0;
     if (p_event->type == NRF_DRV_SAADC_EVT_DONE)                                                        //Capture offset calibration complete event
     {
 			
         //LEDS_INVERT(BSP_LED_1_MASK);                                                                    //Toggle LED2 to indicate SAADC buffer full		
 
-        if((m_adc_evt_counter % SAADC_CALIBRATION_INTERVAL) == 0)                                  //Evaluate if offset calibration should be performed. Configure the SAADC_CALIBRATION_INTERVAL constant to change the calibration frequency
-        {
-            nrf_drv_saadc_abort();                                                                      // Abort all ongoing conversions. Calibration cannot be run if SAADC is busy
-            m_saadc_calibrate = true;                                                                   // Set flag to trigger calibration in main context when SAADC is stopped
-        }
+//        if((m_adc_evt_counter % SAADC_CALIBRATION_INTERVAL) == 0)                                  //Evaluate if offset calibration should be performed. Configure the SAADC_CALIBRATION_INTERVAL constant to change the calibration frequency
+//        {
+//            nrf_drv_saadc_abort();                                                                      // Abort all ongoing conversions. Calibration cannot be run if SAADC is busy
+//            m_saadc_calibrate = true;                                                                   // Set flag to trigger calibration in main context when SAADC is stopped
+//        }
         
 
 #ifdef UART_PRINTING_ENABLED
@@ -667,13 +681,17 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 
         for (int i = 0; i < p_event->data.done.size; i++)
         {
-            NRF_LOG_INFO("%d\r\n", ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]));                                     //Print the SAADC result on UART
+            voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
+            NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
+            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-123);
+            //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
+
         }
 #endif //UART_PRINTING_ENABLED    
-        advertising_stop();
-        //NRF_LOG_INFO("%d, %d, \r\n", ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]), (ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]))/16);
-        advertising_parameters_battery_update((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]))/16);
-        advertising_start();
+//        advertising_stop();
+//        //NRF_LOG_INFO("%d, %d, \r\n", ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]), (ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]))/16);
+//        advertising_parameters_battery_update((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[0]))/16);
+//        advertising_start();
 
         if(m_saadc_calibrate == false)
         {
@@ -690,8 +708,7 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 //        nrf_drv_saadc_uninit();                                                                   //Unintialize SAADC to disable EasyDMA and save power
 //        NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear << SAADC_INTENCLR_END_Pos);               //Disable the SAADC interrupt
 //        NVIC_ClearPendingIRQ(SAADC_IRQn);
-//        adc_pin_configuration_idle();
-  
+//        adc_pin_configuration_idle(); 
     }
     else if (p_event->type == NRF_DRV_SAADC_EVT_CALIBRATEDONE)
     {
@@ -728,8 +745,8 @@ void saadc_init(uint8_t analog_pin_no, uint8_t gnd_pin_no)
     APP_ERROR_CHECK(err_code);
 		
     //Configure SAADC channel
-    channel_config.reference = NRF_SAADC_REFERENCE_INTERNAL;                              //Set internal reference of fixed 0.6 volts
-    channel_config.gain = NRF_SAADC_GAIN1_6;                                              //Set input gain to 1/6. The maximum SAADC input voltage is then 0.6V/(1/6)=3.6V. The single ended input range is then 0V-3.6V
+    channel_config.reference = NRF_SAADC_REFERENCE_VDD4;//NRF_SAADC_REFERENCE_INTERNAL;                              //Set internal reference of fixed 0.6 volts
+    channel_config.gain = NRF_SAADC_GAIN1_2;//NRF_SAADC_GAIN1_6;                                              //Set input gain to 1/6. The maximum SAADC input voltage is then 0.6V/(1/6)=3.6V. The single ended input range is then 0V-3.6V
     channel_config.acq_time = NRF_SAADC_ACQTIME_10US;                                     //Set acquisition time. Set low acquisition time to enable maximum sampling frequency of 200kHz. Set high acquisition time to allow maximum source resistance up to 800 kohm, see the SAADC electrical specification in the PS. 
     channel_config.mode = NRF_SAADC_MODE_SINGLE_ENDED;                                    //Set SAADC as single ended. This means it will only have the positive pin as input, and the negative pin is shorted to ground (0V) internally.
     
@@ -781,8 +798,8 @@ void application_init(void){
     advertising_init();
 
     adc_pin_configuration_init();
-    adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);
-    saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
+    adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
+    saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
 
 
     //bsp_board_leds_on();
