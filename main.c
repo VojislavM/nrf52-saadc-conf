@@ -120,6 +120,8 @@
 #define EC_PWR_3_PIN                  12
 
 #define SENSE_VCC_RESISTOR_VALUE      10000
+#define PIN_INTERNAL_RES              123
+#define ANALOG_VALUES_READ_DELAY_MS   5
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
         ((((ADC_VALUE) * ADC_REF_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_12BIT) * ADC_PRE_SCALING_COMPENSATION) + ADC_OFFSET
@@ -467,38 +469,6 @@ static void idle_state_handle(void)
     }
 }
 
-/**@brief Timeout handler for the repeated timer.
- */
-static void repeated_timer_handler(void * p_context){
-    //nrf_drv_gpiote_out_toggle(USER_LED);
-    ret_code_t err_code;
-    static bool buttonStatus = false;
-
-    if(!buttonStatus){
-        if(nrf_gpio_pin_read(USER_BUTTON) == 1){
-            buttonStatus = true;
-            user_led_on();
-            // Stop the repeated timer.
-            err_code = app_timer_stop(m_repeated_timer_id);
-            APP_ERROR_CHECK(err_code);
-            // start the timer
-            err_code = app_timer_start(m_repeated_timer_id, APP_TIMER_TICKS(2000), NULL);
-            APP_ERROR_CHECK(err_code);
-        }
-    }
-    else{
-        buttonStatus = false;
-        user_led_off();
-        // Stop the repeated timer.
-        err_code = app_timer_stop(m_repeated_timer_id);
-        APP_ERROR_CHECK(err_code);
-        // Power OFF
-        power_pin_off();
-        while(1);
-    }
-    //nrf_drv_gpiote_out_toggle(POWER_PIN);
-}
-
 static void pin_write(int ec_pin, bool level){
     if(level == true){
         nrf_gpio_pin_set(ec_pin);
@@ -508,24 +478,33 @@ static void pin_write(int ec_pin, bool level){
     }
 }
 
-static void adc_timer_handler(void * p_context){
-    NRF_LOG_INFO("timer_handler.");
-    //TODO: 
+static void adc_power_timer_handler(void * p_context)
+{
+    NRF_LOG_INFO("timer+power_handler.");
     //set right pin configuration
-    //init saadc with same right pins
-//    if(true == measure_reverse)
-//    {
-//        adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
-//        saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
-//        measure_reverse = false;
-//    }
-//    else
-//    {
-//        adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
-//        saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
-//        measure_reverse = true;
-//    }
+    //init saadc with same right pins  
     nrf_drv_saadc_sample();                                        //Trigger the SAADC SAMPLE task
+}
+
+static void adc_timer_handler(void * p_context)
+{
+    ret_code_t err_code;
+    NRF_LOG_INFO("timer_handler.");
+
+    if(true == measure_reverse)
+    {
+        adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
+        saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
+        measure_reverse = false;
+    }
+    else
+    {
+        adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
+        saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
+        measure_reverse = true;
+    }
+    err_code = app_timer_start(m_timer_analog_power_id, APP_TIMER_TICKS(ANALOG_VALUES_READ_DELAY_MS), NULL);
+    APP_ERROR_CHECK(err_code);
 }
 
 void adc_pin_configuration_init(void)
@@ -640,13 +619,13 @@ void adc_pin_configuration_idle(void)
     adc_pin_configuration_init();
 }
 
-void timer2_create(void){
+void timer_adc_power_create(void){
     ret_code_t err_code;
 
     // Create timers
-    err_code = app_timer_create(&m_repeated_timer_id,
+    err_code = app_timer_create(&m_timer_analog_power_id,
                                 APP_TIMER_MODE_SINGLE_SHOT,
-                                repeated_timer_handler);
+                                adc_power_timer_handler);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -683,7 +662,7 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         {
             voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
             NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
-            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-123);
+            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
             //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
 
         }
@@ -704,11 +683,11 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         //TODO: 
         //set adc pins to default state
         //uninit saadc
-//        NRF_LOG_INFO("SAADC uninit\r\n"); 
-//        nrf_drv_saadc_uninit();                                                                   //Unintialize SAADC to disable EasyDMA and save power
-//        NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear << SAADC_INTENCLR_END_Pos);               //Disable the SAADC interrupt
-//        NVIC_ClearPendingIRQ(SAADC_IRQn);
-//        adc_pin_configuration_idle(); 
+        NRF_LOG_INFO("SAADC uninit\r\n"); 
+        nrf_drv_saadc_uninit();                                                                   //Unintialize SAADC to disable EasyDMA and save power
+        NRF_SAADC->INTENCLR = (SAADC_INTENCLR_END_Clear << SAADC_INTENCLR_END_Pos);               //Disable the SAADC interrupt
+        NVIC_ClearPendingIRQ(SAADC_IRQn);
+        adc_pin_configuration_idle(); 
     }
     else if (p_event->type == NRF_DRV_SAADC_EVT_CALIBRATEDONE)
     {
@@ -793,13 +772,14 @@ void application_init(void){
     //bsp_board_init(BSP_INIT_LEDS);
     timers_init();//used by softdevice
     timer_adc_create();
+    timer_adc_power_create();
     power_management_init();
     ble_stack_init();
     advertising_init();
 
     adc_pin_configuration_init();
-    adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
-    saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
+    //adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
+    //saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
 
 
     //bsp_board_leds_on();
