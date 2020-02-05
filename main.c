@@ -122,6 +122,14 @@
 #define SENSE_VCC_RESISTOR_VALUE      10000
 #define PIN_INTERNAL_RES              123
 #define ANALOG_VALUES_READ_DELAY_MS   5
+#define ANALOG_VALUES_REPEAT_DELAY_MS 10
+
+#define M_S1_S3                       1
+#define M_S3_S1                       2
+#define M_S1_S2                       3
+#define M_S2_S1                       4
+#define M_S3_S2                       5
+#define M_S2_S3                       6
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
         ((((ADC_VALUE) * ADC_REF_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_12BIT) * ADC_PRE_SCALING_COMPENSATION) + ADC_OFFSET
@@ -153,6 +161,7 @@ APP_TIMER_DEF(m_repeated_timer_id);     /**< Handler for repeated timer used to 
 APP_TIMER_DEF(m_alarm_timer_id);     /**< Handler for oneshot alarm timer. */
 APP_TIMER_DEF(m_timer_analog_values_id);     /**< Handler for repeated timer used to blink LED 1. */
 APP_TIMER_DEF(m_timer_analog_power_id);     /**< Handler for repeated timer used to blink LED 1. */
+APP_TIMER_DEF(m_timer_analog_repeat_id);     /**< Handler for repeated timer used to blink LED 1. */
 
 /*functions prototypes */
 static void button_event_handler(uint8_t, uint8_t);
@@ -162,7 +171,7 @@ bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no);
 //const nrf_drv_timer_t SIMPLE_TIMER = NRF_DRV_TIMER_INSTANCE(SIMPLE_TIMER_CONFIG_INSTANCE);
 
 uint8_t alarm_state_set = false;
-bool measure_reverse = true;
+uint8_t measure_reverse = true;
 
 
 
@@ -486,27 +495,76 @@ static void adc_power_timer_handler(void * p_context)
     nrf_drv_saadc_sample();                                        //Trigger the SAADC SAMPLE task
 }
 
+static void adc_repeat_timer_handler(void * p_context)
+{
+    ret_code_t err_code;
+    //NRF_LOG_INFO("adc_repat_timer_handler.");
+    //see if the saadc is currently running
+    if(!nrf_drv_saadc_is_busy())
+    {
+        if(M_S1_S3 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler1.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
+            saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
+            measure_reverse = M_S3_S1;
+        }
+        else if(M_S3_S1 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler2.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
+            saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
+            measure_reverse = M_S1_S2;
+        }
+        else if(M_S1_S2 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler2.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);
+            saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
+            measure_reverse = M_S2_S1;
+        }
+        else if(M_S2_S1 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler2.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_2, EC_SIG_PIN_NO_1);
+            saadc_init(EC_SIG_PIN_NO_2, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
+            measure_reverse = M_S3_S2;
+        }
+        else if(M_S3_S2 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler2.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_2);
+            saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_2);                                    //Initialize and start SAADC
+            measure_reverse = M_S2_S3;
+        }
+        else if(M_S2_S3 == measure_reverse)
+        {
+            //NRF_LOG_INFO("timer_handler2.");
+            adc_pin_configuration_set(EC_SIG_PIN_NO_2, EC_SIG_PIN_NO_3);
+            saadc_init(EC_SIG_PIN_NO_2, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
+            measure_reverse = M_S1_S3;
+            //stop the timmer, cicle is over
+            err_code = app_timer_stop(m_timer_analog_repeat_id);
+            APP_ERROR_CHECK(err_code);
+        }
+        else
+        {
+            return;
+        }
+        err_code = app_timer_start(m_timer_analog_power_id, APP_TIMER_TICKS(ANALOG_VALUES_READ_DELAY_MS), NULL);
+        APP_ERROR_CHECK(err_code);
+    }
+   
+}
+
 static void adc_timer_handler(void * p_context)
 {
     ret_code_t err_code;
     //NRF_LOG_INFO("timer_handler.");
 
-    if(true == measure_reverse)
-    {
-        //NRF_LOG_INFO("timer_handler1.");
-        adc_pin_configuration_set(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);
-        saadc_init(EC_SIG_PIN_NO_1, EC_SIG_PIN_NO_3);                                    //Initialize and start SAADC
-        measure_reverse = false;
-    }
-    else
-    {
-        //NRF_LOG_INFO("timer_handler2.");
-        adc_pin_configuration_set(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);
-        saadc_init(EC_SIG_PIN_NO_3, EC_SIG_PIN_NO_1);                                    //Initialize and start SAADC
-        measure_reverse = true;
-    }
-    err_code = app_timer_start(m_timer_analog_power_id, APP_TIMER_TICKS(ANALOG_VALUES_READ_DELAY_MS), NULL);
+    err_code = app_timer_start(m_timer_analog_repeat_id, APP_TIMER_TICKS(ANALOG_VALUES_REPEAT_DELAY_MS), NULL);
     APP_ERROR_CHECK(err_code);
+
 }
 
 void adc_pin_configuration_init(void)
@@ -631,6 +689,16 @@ void timer_adc_power_create(void){
     APP_ERROR_CHECK(err_code);
 }
 
+void timer_adc_repeat_create(void){
+    ret_code_t err_code;
+
+    // Create timers
+    err_code = app_timer_create(&m_timer_analog_repeat_id,
+                                APP_TIMER_MODE_REPEATED,
+                                adc_repeat_timer_handler);
+    APP_ERROR_CHECK(err_code);
+}
+
 void timer_adc_create(void){
     ret_code_t err_code;
 
@@ -663,9 +731,9 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         for (int i = 0; i < p_event->data.done.size; i++)
         {
             voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
-            NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
-            NRF_LOG_INFO("3v3 %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (3255 - (voltage)))-PIN_INTERNAL_RES);//2955
-            NRF_LOG_INFO("3v  %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
+            //NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
+            //NRF_LOG_INFO("3v3 %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (3255 - (voltage)))-PIN_INTERNAL_RES);//2955
+            NRF_LOG_INFO("op: %d =  %d Ohm", measure_reverse, ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
             //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
 
         }
@@ -775,6 +843,7 @@ void application_init(void){
     //bsp_board_init(BSP_INIT_LEDS);
     timers_init();//used by softdevice
     timer_adc_create();
+    timer_adc_repeat_create();
     timer_adc_power_create();
     power_management_init();
     ble_stack_init();
