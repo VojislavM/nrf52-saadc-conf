@@ -171,7 +171,7 @@ bool adc_pin_configuration_set(uint8_t analog_pin_no, uint8_t gnd_pin_no);
 //const nrf_drv_timer_t SIMPLE_TIMER = NRF_DRV_TIMER_INSTANCE(SIMPLE_TIMER_CONFIG_INSTANCE);
 
 uint8_t alarm_state_set = false;
-uint8_t measure_reverse = true;
+uint8_t measure_reverse = M_S1_S3; //first measurement
 
 
 
@@ -712,6 +712,8 @@ void timer_adc_create(void){
 void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 {
     ret_code_t err_code;
+    static int a = 0;
+    static int results[7];
     int voltage = 0;
     if (p_event->type == NRF_DRV_SAADC_EVT_DONE)                                                        //Capture offset calibration complete event
     {
@@ -724,7 +726,6 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 //            m_saadc_calibrate = true;                                                                   // Set flag to trigger calibration in main context when SAADC is stopped
 //        }
         
-
 #ifdef UART_PRINTING_ENABLED
         //NRF_LOG_INFO("ADC event number: %d\r\n",(int)m_adc_evt_counter);                                //Print the event number on UART
 
@@ -733,8 +734,17 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
             voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
             //NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
             //NRF_LOG_INFO("3v3 %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (3255 - (voltage)))-PIN_INTERNAL_RES);//2955
-            NRF_LOG_INFO("op: %d =  %d Ohm", measure_reverse, ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
-            //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
+            results[a] = ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES;
+            a++;
+            //NRF_LOG_INFO("%d, %d", a, measure_reverse);
+            if(6 == a)
+            {
+                NRF_LOG_INFO("%d, %d, %d, %d, %d, %d", results[0], results[1], results[2], results[3], results[4], results[5]);
+                a = 0;
+                
+            }
+            //NRF_LOG_INFO("%d, %d, %d, %d, %d, %d", results[0], results[1], results[2], results[3], results[4], results[5]);
+           //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
 
         }
 #endif //UART_PRINTING_ENABLED    
