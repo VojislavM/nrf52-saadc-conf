@@ -663,8 +663,9 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         for (int i = 0; i < p_event->data.done.size; i++)
         {
             voltage = ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]);
-            //NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
-            NRF_LOG_INFO("%d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);//2955
+            NRF_LOG_INFO("%d mV\r\n", voltage);                                     //Print the SAADC result on UART
+            NRF_LOG_INFO("3v3 %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (3255 - (voltage)))-PIN_INTERNAL_RES);//2955
+            NRF_LOG_INFO("3v  %d Ohm\r\n", ((voltage) * SENSE_VCC_RESISTOR_VALUE / (2955 - (voltage)))-PIN_INTERNAL_RES);
             //NRF_LOG_INFO("%d Ohm\r\n", ((ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]) * SENSE_VCC_RESISTOR_VALUE) / (3000 - ADC_RESULT_IN_MILLI_VOLTS(p_event->data.done.p_buffer[i]))));
 
         }
