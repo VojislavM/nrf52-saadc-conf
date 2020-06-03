@@ -1,4 +1,9 @@
-# saadc
+# nrf52 saadc
+
+Reading three analog pins on nRF52810 and sending data to uart. 
+This is a test firmware. 
+
+Additional specification in Docs file
 
 analog inputs :
 * p0_03 (ain1)
